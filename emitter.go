@@ -46,9 +46,8 @@ func (e *Emitter) On (pattern string, flags ...interface{}) (channel chan Event)
 		f := flags[i].(Flag)
 		i++
 
-		ln.flags |= f
-
 		switch f {
+			case Skip, Close, HoldStatus:
 			case Cap:
 				channelCap = int(flags[i].(int))
 				i++
@@ -61,6 +60,8 @@ func (e *Emitter) On (pattern string, flags ...interface{}) (channel chan Event)
 			default:
 			 	panic(fmt.Errorf("Invalid flag: %v", f))
 		}
+
+		ln.flags |= f
 	}
 
 	channel = make(chan Event, channelCap)
@@ -166,16 +167,17 @@ func (e *Emitter) Emit (topic string, flagsArgs ...interface{}) (statusCh chan E
 
 		i++
 
-		event.emitFlags |= f
-
 		switch f {
+			case AtomicStatus, Sticky:
 			case Count:
-				event.emitFlags |= Sticky
+				f |= Sticky
 				event.stickyCount = int64(flagsArgs[i].(int))
 				i++
 			default:
 				panic(fmt.Errorf("Invalid flag: %v", f))
 		}
+
+		event.emitFlags |= f
 	}
 
 	if i!=0 { flagsArgs = flagsArgs[i:] }
