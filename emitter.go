@@ -12,25 +12,30 @@ type Emitter struct {
 	// format:  (\d+:{pattern}\n)*
 	patterns 	 	string
 	patternID 	 	uint64
-	channels 	 	map[string]<-chan Event
-	listeners 	 	map[<-chan Event]*listener
+	channels 	 	map[string]chan Event
+	listeners 	 	map[chan Event]*listener
 	stickyEvents 	[]*Event
 	topicReCache  	map[string]*regexp.Regexp
 
 	mu 			 sync.Mutex
 }
 
+// Sunscribes for events by pattern
 // pattern format: [^\n]+
-func (e *Emitter) On (pattern string, onFlags ...interface{}) (channel <-chan Event) {
+// close(channel) === e.Off("*", channel)
+// channel can be closed by use e.Off(pattern)
+func (e *Emitter) On (pattern string, onFlags ...interface{}) (channel chan Event) {
 	if strings.Index(pattern,"\n") >= 0 { panic(fmt.Errorf("Incorrect pattern: %s", pattern)) }
 
 	e.mu.Lock()
+
+	channel = make(chan Event)
 
 	var ln = &listener{
 		count:		-1,
 		pattern:	pattern,
 		patternID:  strconv.FormatUint(e.patternID, 10),
-		ch:			make(chan Event),
+		ch:			channel,
 	}
 
 	e.patternID++
@@ -54,10 +59,8 @@ func (e *Emitter) On (pattern string, onFlags ...interface{}) (channel <-chan Ev
 		}
 	}
 	
-	if e.channels == nil { e.channels = map[string]<-chan Event{} }
-	if e.listeners == nil { e.listeners = map[<-chan Event]*listener{} }
-
-	channel = ln.ch
+	if e.channels == nil { e.channels = map[string]chan Event{} }
+	if e.listeners == nil { e.listeners = map[chan Event]*listener{} }
 
 	patternStr := ln.patternID + ":" + pattern + "\n"
 
@@ -78,13 +81,20 @@ func (e *Emitter) On (pattern string, onFlags ...interface{}) (channel <-chan Ev
 	return
 }
 
-func (e *Emitter) Once (pattern string, onFlags ...interface{}) (channel <-chan Event) {
+// Subscribes for one event by pattern
+// More: see On(...)
+func (e *Emitter) Once (pattern string, onFlags ...interface{}) (channel chan Event) {
 	return e.On(pattern, append([]interface{}{Count,1}, onFlags...)...)
 }
 
 
+func safeClose (ch chan Event) {
+	defer func() { recover() }()
+	close(ch)
+}
 
-func (e *Emitter) Off (pattern string, channels ...<-chan Event) {
+// Unsibscribe lisener by pattern and/or channels
+func (e *Emitter) Off (pattern string, channels ...chan Event) {
 	e.mu.Lock()
 
 	if len(channels)>0 {
@@ -95,7 +105,7 @@ func (e *Emitter) Off (pattern string, channels ...<-chan Event) {
 				e.patterns = strings.Replace(e.patterns, l.patternID + ":" + l.pattern + "\n", "", 1)
 				delete(e.listeners, ch)
 				delete(e.channels, l.patternID)
-				close(l.ch)
+				safeClose(l.ch)
 			}
 		}
 
@@ -121,12 +131,13 @@ func (e *Emitter) Off (pattern string, channels ...<-chan Event) {
 		
 		delete(e.listeners, ch)
 		delete(e.channels, id[1])
-		close(l.ch)
+		safeClose(l.ch)
 	}
 
 	e.mu.Unlock()
 }
 
+// Emits event
 func (e *Emitter) Emit (topic string, emitFlagsArgs ...interface{}) (statusCh chan EmitStatus) {
 	var event = &Event{
 		Emitter: 	 e,
@@ -213,6 +224,7 @@ func (e *Emitter) Emit (topic string, emitFlagsArgs ...interface{}) (statusCh ch
 	return
 }
 
+// Emits stiky event
 func (e *Emitter) EmitSticky (topic string, args ...interface{}) (status chan EmitStatus) {
 	return e.Emit(topic, append([]interface{}{Sticky}, args...)...)
 }
@@ -374,7 +386,10 @@ func (e *Emitter) emitEvent (rootEvent *Event, listeners []*listener) {
 }
 
 func (e *Emitter) sendEvent (event Event, l *listener) (sent bool) {
-	defer func() { recover() }()
+	defer func() {
+		err := recover()
+		if err != nil { e.Off("*", l.ch) }
+	}()
 
 	isWait := l.onFlags & (Skip|Close) == 0
 

@@ -331,3 +331,12 @@ func TestEmitStickyCount (T *testing.T) {
 	}
 
 }
+
+func TestOnAndClose (T *testing.T) {
+	var em Emitter
+
+	ch := em.On("test")
+	close(ch)
+
+	<-em.Emit("test")
+}
