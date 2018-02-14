@@ -24,40 +24,47 @@ type Emitter struct {
 // pattern format: [^\n]+
 // close(channel) === e.Off("*", channel)
 // channel can be closed by use e.Off(pattern)
-func (e *Emitter) On (pattern string, onFlags ...interface{}) (channel chan Event) {
+func (e *Emitter) On (pattern string, flags ...interface{}) (channel chan Event) {
 	if strings.Index(pattern,"\n") >= 0 { panic(fmt.Errorf("Incorrect pattern: %s", pattern)) }
 
 	e.mu.Lock()
-
-	channel = make(chan Event)
 
 	var ln = &listener{
 		count:		-1,
 		pattern:	pattern,
 		patternID:  strconv.FormatUint(e.patternID, 10),
-		ch:			channel,
 	}
+
+	channelCap := 0
 
 	e.patternID++
 
 	i := 0
-	l := len(onFlags)
+	l := len(flags)
 
 	for i<l {
-		f := onFlags[i].(OnFlag)
+		f := flags[i].(Flag)
 		i++
 
-		ln.onFlags |= f
+		ln.flags |= f
 
 		switch f {
+			case Cap:
+				channelCap = int(flags[i].(int))
+				i++
 			case Count:
-			 	ln.count = int64(onFlags[i].(int))
+			 	ln.count = int64(flags[i].(int))
 			 	i++
 			case Middleware:
-				ln.middlewars = append(ln.middlewars, onFlags[i].(func(*Event)) )
+				ln.middlewars = append(ln.middlewars, flags[i].(func(*Event)) )
 				i++
+			default:
+			 	panic(fmt.Errorf("Invalid flag: %v", f))
 		}
 	}
+
+	channel = make(chan Event, channelCap)
+	ln.ch = channel
 	
 	if e.channels == nil { e.channels = map[string]chan Event{} }
 	if e.listeners == nil { e.listeners = map[chan Event]*listener{} }
@@ -83,8 +90,8 @@ func (e *Emitter) On (pattern string, onFlags ...interface{}) (channel chan Even
 
 // Subscribes for one event by pattern
 // More: see On(...)
-func (e *Emitter) Once (pattern string, onFlags ...interface{}) (channel chan Event) {
-	return e.On(pattern, append([]interface{}{Count,1}, onFlags...)...)
+func (e *Emitter) Once (pattern string, flags ...interface{}) (channel chan Event) {
+	return e.On(pattern, append([]interface{}{Count,1}, flags...)...)
 }
 
 
@@ -138,7 +145,7 @@ func (e *Emitter) Off (pattern string, channels ...chan Event) {
 }
 
 // Emits event
-func (e *Emitter) Emit (topic string, emitFlagsArgs ...interface{}) (statusCh chan EmitStatus) {
+func (e *Emitter) Emit (topic string, flagsArgs ...interface{}) (statusCh chan EmitStatus) {
 	var event = &Event{
 		Emitter: 	 e,
 		Topic:       topic,
@@ -150,10 +157,10 @@ func (e *Emitter) Emit (topic string, emitFlagsArgs ...interface{}) (statusCh ch
 	}
 
 	i := 0
-	l := len(emitFlagsArgs)
+	l := len(flagsArgs)
 
 	for i<l {
-		f,ok := emitFlagsArgs[i].(EmitFlag)
+		f,ok := flagsArgs[i].(Flag)
 
 		if !ok { break }
 
@@ -162,15 +169,18 @@ func (e *Emitter) Emit (topic string, emitFlagsArgs ...interface{}) (statusCh ch
 		event.emitFlags |= f
 
 		switch f {
-			case StickyCount:
-				event.stickyCount = int64(emitFlagsArgs[i].(int))
+			case Count:
+				event.emitFlags |= Sticky
+				event.stickyCount = int64(flagsArgs[i].(int))
 				i++
+			default:
+				panic(fmt.Errorf("Invalid flag: %v", f))
 		}
 	}
 
-	if i!=0 { emitFlagsArgs = emitFlagsArgs[i:] }
+	if i!=0 { flagsArgs = flagsArgs[i:] }
 
-	event.Args = emitFlagsArgs
+	event.Args = flagsArgs
 
 	isSticky := event.emitFlags & Sticky != 0
 
@@ -267,6 +277,17 @@ func (e *Emitter) getListeners (topic string) (listeners []*listener) {
 	return
 }
 
+func isOpened (ch chan Event) (is bool) {
+	defer func() { recover() }()
+
+	select {
+		case ch<- Event{}:
+		default:
+	}
+
+	return true
+}
+
 func (e *Emitter) emitEvent (rootEvent *Event, listeners []*listener) {
 	defer func() { recover() }()
 
@@ -278,7 +299,13 @@ func (e *Emitter) emitEvent (rootEvent *Event, listeners []*listener) {
 	if listeners == nil { listeners = e.getListeners(event.Topic) }
 
 	for _,l := range listeners {
-		for _,fn := range l.middlewars { fn(&event) }
+		for _,fn := range l.middlewars {
+			if isOpened(l.ch) {
+				fn(&event)
+			} else {
+				defer e.Off("*", l.ch)
+			}
+		}
 
 		isVoid := event.flags & Void == Void
 
@@ -313,7 +340,7 @@ func (e *Emitter) emitEvent (rootEvent *Event, listeners []*listener) {
 	for i := range listeners {
 		l := listeners[i]
 
-		isMiddleware := l.onFlags & Middleware == Middleware
+		isMiddleware := l.flags& Middleware == Middleware
 
 		if isMiddleware { continue }
 
@@ -349,7 +376,7 @@ func (e *Emitter) emitEvent (rootEvent *Event, listeners []*listener) {
 		evt := event
 		evt.Args = append([]interface{}{}, evt.Args...)
 
-		isHoldStatus := l.onFlags & HoldStatus == HoldStatus
+		isHoldStatus := l.flags& HoldStatus == HoldStatus
 
 		if isHoldStatus {
 			sending.Add(1)
@@ -391,7 +418,7 @@ func (e *Emitter) sendEvent (event Event, l *listener) (sent bool) {
 		if err != nil { e.Off("*", l.ch) }
 	}()
 
-	isWait := l.onFlags & (Skip|Close) == 0
+	isWait := l.flags& (Skip|Close) == 0
 
 	if isWait {
 		select {
@@ -420,7 +447,7 @@ func (e *Emitter) sendEvent (event Event, l *listener) (sent bool) {
 				event.status.Pending--
 				event.status.Unlock()
 
-				isClose := l.onFlags & Close == Close
+				isClose := l.flags& Close == Close
 				
 				if isClose { e.Off("*", l.ch) }
 		}

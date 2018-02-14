@@ -298,10 +298,10 @@ func TestEmitSticky (T *testing.T) {
 }
 
 
-func TestEmitStickyCount (T *testing.T) {
+func TestEmitCount (T *testing.T) {
 	var em  Emitter
 
-	<-em.Emit("test", StickyCount, 2, "val")
+	<-em.Emit("test", Count, 2, "val")
 
 	ch1 := em.Once("test")
 	ch2 := em.Once("test")
@@ -336,6 +336,32 @@ func TestOnAndClose (T *testing.T) {
 	var em Emitter
 
 	ch := em.On("test")
+	close(ch)
+
+	<-em.Emit("test")
+}
+
+func TestCapFlag (T *testing.T) {
+ 	var em Emitter
+
+ 	ch := em.On("test", Cap, 1)
+
+ 	<-em.Emit("test", 10)
+
+ 	e := <-ch
+
+	if e.Args[0].(int) != 10 {
+		T.Fatalf("Incorrect args: %#v", e.Args)
+	}
+}
+
+func TestMiddlewareClose (T *testing.T) {
+	var em Emitter
+
+	ch := em.On("test", Middleware, func(e *Event) {
+		T.Errorf("Incorrect work")
+	})
+
 	close(ch)
 
 	<-em.Emit("test")

@@ -5,7 +5,7 @@ import "sync"
 type listener struct {
 	pattern    string
 	patternID  string
-	onFlags    OnFlag
+	flags      Flag
 	ch         chan Event
 	used       sync.WaitGroup
 	count      int64

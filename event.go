@@ -7,14 +7,14 @@ type Event struct {
 	Topic 		string
 	Args  		[]interface{}
 
-	emitFlags   EmitFlag
+	emitFlags   Flag
 	status      *EmitStatus
 	statusUpdCh chan bool
 	cancelCh    chan bool
 	stickyCount int64
 	used        *sync.WaitGroup
 	
-	flags 		OnFlag
+	flags 		Flag
 
 	holdStatus  *sync.WaitGroup
 }
