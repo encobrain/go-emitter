@@ -129,6 +129,7 @@ func (e *Emitter) Off (pattern string, channels ...<-chan Event) {
 
 func (e *Emitter) Emit (topic string, emitFlagsArgs ...interface{}) (statusCh chan EmitStatus) {
 	var event = &Event{
+		Emitter: 	 e,
 		Topic:       topic,
 		status:      &EmitStatus{},
 		statusUpdCh: make(chan bool,1),

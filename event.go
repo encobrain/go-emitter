@@ -3,6 +3,7 @@ package emitter
 import "sync"
 
 type Event struct {
+	Emitter     *Emitter
 	Topic 		string
 	Args  		[]interface{}
 
