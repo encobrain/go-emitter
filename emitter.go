@@ -124,11 +124,10 @@ func (e *Emitter) Off (pattern string, channels ...chan Event) {
 
 	if strings.Index(pattern,"\n") >= 0 { panic(fmt.Errorf("Incorrect pattern: %s", pattern)) }
 
-	patternRes := strings.Replace(regexp.QuoteMeta(pattern), "\\*", "[^.]+", -1)
-
+	patternRes := strings.Replace(regexp.QuoteMeta(pattern), "\\*", ".+?", -1)
 	patternRe,err := regexp.Compile("(?m)^(\\d+):" + patternRes + "\n")
 
-	if err != nil { panic(fmt.Errorf("Incorrect pattern: %s", pattern)) }
+	if err != nil { panic(fmt.Errorf("Incorrect pattern %s: %s", pattern, err)) }
 
 	ids := patternRe.FindAllStringSubmatch(e.patterns, -1)
 

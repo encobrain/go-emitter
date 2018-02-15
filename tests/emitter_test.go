@@ -184,6 +184,7 @@ func TestOnByPattern (T *testing.T) {
 	var em Emitter
 
 	ch1 := em.On("test.*.klm")
+	ch2 := em.On("*.*.klm")
 
 	em.Emit("test.abc.klm", 1)
 
@@ -193,9 +194,21 @@ func TestOnByPattern (T *testing.T) {
 		T.Fatalf("Incorrect args: %v", e.Args)
 	}
 
+	e = <-ch2
+
+	if e.Args[0] != 1 {
+		T.Fatalf("Incorrect args: %v", e.Args)
+	}
+
 	em.Emit("test.cde.klm", 2)
 
 	e = <-ch1
+
+	if e.Args[0] != 2 {
+		T.Fatalf("Incorrect args: %v", e.Args)
+	}
+
+	e = <-ch2
 
 	if e.Args[0] != 2 {
 		T.Fatalf("Incorrect args: %v", e.Args)
@@ -270,9 +283,11 @@ func TestOffByPattern (T *testing.T) {
 
 	ch1 := em.On("test.abc.klm")
 	ch2 := em.On("test.cde.klm")
+	ch3 := em.On("test.efg.klm.opq")
 
 	em.Emit("test.abc.klm")
 	em.Emit("test.cde.klm")
+	em.Emit("test.efg.klm.opq")
 
 	em.Off("test.*.klm")
 	
@@ -283,6 +298,29 @@ func TestOffByPattern (T *testing.T) {
 	for range ch2 {
 		T.Fatalf("Off not work")
 	}
+
+	_,ok := <-ch3
+
+	if !ok {
+		T.Fatalf("Off incorrect")
+	}
+	
+	ch1 = em.On("test.abc.klm")
+	ch2 = em.On("test.cde.klm")
+
+	em.Emit("test.abc.klm")
+	em.Emit("test.cde.klm")
+
+	em.Off("*")
+
+	for range ch1 {
+		T.Fatalf("Off not work")
+	}
+
+	for range ch2 {
+		T.Fatalf("Off not work")
+	}
+
 }
 
 func TestEmitSticky (T *testing.T) {
