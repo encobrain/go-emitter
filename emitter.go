@@ -183,7 +183,7 @@ func (e *Emitter) Emit (topic string, flagsArgs ...interface{}) (statusCh chan E
 
 	event.Args = flagsArgs
 
-	isSticky := event.emitFlags & Sticky != 0
+	isSticky := event.emitFlags & Sticky == Sticky
 
 	if isSticky {
 	  	e.mu.Lock()
