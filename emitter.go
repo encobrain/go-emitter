@@ -150,7 +150,7 @@ func (e *Emitter) Emit (topic string, flagsArgs ...interface{}) (statusCh chan E
 		Emitter: 	 e,
 		Topic:       topic,
 		status:      &EmitStatus{},
-		statusUpdCh: make(chan bool,1),
+		statusUpdCh: make(chan bool),
 		cancelCh:    make(chan bool),
 		stickyCount: -1,
 		used:        &sync.WaitGroup{},
@@ -319,19 +319,10 @@ func (e *Emitter) emitEvent (rootEvent *Event, listeners []*listener) {
 	if !isSticky { defer close(rootEvent.cancelCh) }
 
 	if !isAtomicStatus {
-		event.statusUpdCh = make(chan bool,1)
+		defer func() { rootEvent.statusUpdCh<- true }()
+		
+		event.statusUpdCh = make(chan bool, len(listeners))
 		defer close(event.statusUpdCh)
-
-		defer func() {
-			select {
-				case <-event.statusUpdCh:
-					select {
-						case rootEvent.statusUpdCh<-true:
-						default:
-					}
-				default:
-			}
-		}()
 	}
 
 	sending := &sync.WaitGroup{}
@@ -401,10 +392,7 @@ func (e *Emitter) emitEvent (rootEvent *Event, listeners []*listener) {
 	if isAtomicStatus {
 		go func() {
 			defer func() { recover() }()
-			select {
-				case rootEvent.statusUpdCh<- true:
-				default:
-			}
+			rootEvent.statusUpdCh<- true
 		}()
 	}
 
@@ -414,21 +402,18 @@ func (e *Emitter) emitEvent (rootEvent *Event, listeners []*listener) {
 }
 
 func (e *Emitter) sendEvent (event Event, l *listener) (sent bool) {
+	defer func () { recover() }()
+	
 	defer func() {
 		err := recover()
 		if err != nil { e.Off("*", l.ch) }
 
-		if !sent {
-			event.status.Lock()
-			event.status.Skipped++
-			event.status.Pending--
-			event.status.Unlock()
-		}
+		event.status.Lock()
+		event.status.Pending--
+		if sent { event.status.Sent++ } else { event.status.Skipped++ }
+		event.status.Unlock()
 
-		select {
-			case event.statusUpdCh<- true:
-			default:
-		}
+		event.statusUpdCh<- true
 	}()
 
 	isWait := l.flags& (Skip|Close) == 0
@@ -439,10 +424,6 @@ func (e *Emitter) sendEvent (event Event, l *listener) (sent bool) {
 				return
 			case l.ch<- event:
 				sent=true
-				event.status.Lock()
-				event.status.Sent++
-				event.status.Pending--
-				event.status.Unlock()
 		}
 	} else {
 		select {
@@ -450,10 +431,6 @@ func (e *Emitter) sendEvent (event Event, l *listener) (sent bool) {
 				return
 			case l.ch<- event:
 				sent=true
-				event.status.Lock()
-				event.status.Sent++
-				event.status.Pending--
-				event.status.Unlock()
 			default:
 				isClose := l.flags & Close == Close
 				
