@@ -417,6 +417,18 @@ func (e *Emitter) sendEvent (event Event, l *listener) (sent bool) {
 	defer func() {
 		err := recover()
 		if err != nil { e.Off("*", l.ch) }
+
+		if !sent {
+			event.status.Lock()
+			event.status.Skipped++
+			event.status.Pending--
+			event.status.Unlock()
+		}
+
+		select {
+			case event.statusUpdCh<- true:
+			default:
+		}
 	}()
 
 	isWait := l.flags& (Skip|Close) == 0
@@ -443,20 +455,10 @@ func (e *Emitter) sendEvent (event Event, l *listener) (sent bool) {
 				event.status.Pending--
 				event.status.Unlock()
 			default:
-				event.status.Lock()
-				event.status.Skipped++
-				event.status.Pending--
-				event.status.Unlock()
-
-				isClose := l.flags& Close == Close
+				isClose := l.flags & Close == Close
 				
 				if isClose { e.Off("*", l.ch) }
 		}
-	}
-
-	select {
-	 	case event.statusUpdCh<- true:
-		default:
 	}
 
 	return 
