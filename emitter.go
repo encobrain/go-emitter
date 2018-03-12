@@ -72,6 +72,8 @@ func (e *Emitter) On (pattern string, flags ...interface{}) (channel chan Event)
 
 	patternStr := ln.patternID + ":" + pattern + "\n"
 
+	if e.patterns == "" { e.patterns = "\n" }
+
 	e.patterns += patternStr
 	e.channels[ln.patternID] = channel
 	e.listeners[channel] = ln
@@ -110,7 +112,7 @@ func (e *Emitter) Off (pattern string, channels ...chan Event) {
 			l := e.listeners[ch]
 
 			if l != nil {
-				e.patterns = strings.Replace(e.patterns, l.patternID + ":" + l.pattern + "\n", "", 1)
+				e.patterns = strings.Replace(e.patterns, "\n" + l.patternID + ":" + l.pattern + "\n", "\n", 1)
 				delete(e.listeners, ch)
 				delete(e.channels, l.patternID)
 				safeClose(l.ch)
@@ -134,7 +136,7 @@ func (e *Emitter) Off (pattern string, channels ...chan Event) {
 	for _,id := range ids {
 		ch := e.channels[id[1]]
 		l := e.listeners[ch]
-		e.patterns = strings.Replace(e.patterns, id[0], "", 1)
+		e.patterns = strings.Replace(e.patterns, "\n"+id[0], "\n", 1)
 		
 		delete(e.listeners, ch)
 		delete(e.channels, id[1])
