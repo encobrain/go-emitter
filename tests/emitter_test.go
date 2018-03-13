@@ -200,12 +200,12 @@ func TestOnByPattern (T *testing.T) {
 		T.Fatalf("Incorrect args: %v", e.Args)
 	}
 
-	em.Emit("test.cde.klm", 2)
+	em.Emit("test2.cde.klm", 2)
 
-	e = <-ch1
-
-	if e.Args[0] != 2 {
-		T.Fatalf("Incorrect args: %v", e.Args)
+	select {
+		case <-ch1:
+			T.Fatalf("Incorrect work");
+		default:
 	}
 
 	e = <-ch2
@@ -403,4 +403,20 @@ func TestMiddlewareClose (T *testing.T) {
 	close(ch)
 
 	<-em.Emit("test")
+}
+
+func TestEmitStickyAndClose (T *testing.T) {
+	var em Emitter
+
+	st := em.EmitSticky("test")
+
+	ch1 := em.On("test")
+
+	close(st)
+
+	select {
+		case <-ch1:
+			T.Fatalf("Incorrect work")
+		default:
+	}
 }
