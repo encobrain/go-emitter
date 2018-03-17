@@ -187,13 +187,15 @@ func (e *Emitter) Emit (topic string, flagsArgs ...interface{}) (statusCh chan E
 
 	isSticky := event.emitFlags & Sticky == Sticky
 
-	if isSticky {
-	  	e.mu.Lock()
-	  	e.stickyEvents = append(e.stickyEvents, event)
-	  	e.mu.Unlock()
-	}
+	e.mu.Lock()
+
+	if isSticky { e.stickyEvents = append(e.stickyEvents, event) }
 
 	statusCh = make(chan EmitStatus)
+
+	listeners := e.getListeners(event.Topic)
+
+	e.mu.Unlock()
 
 	go func() {
 		defer func() {
@@ -232,7 +234,7 @@ func (e *Emitter) Emit (topic string, flagsArgs ...interface{}) (statusCh chan E
 		}
 	}()
 
-	go e.emitEvent(event, nil)
+	go e.emitEvent(event, listeners)
 
 	return
 }
@@ -263,8 +265,6 @@ func (e *Emitter) getTopicRe (topic string) (topicRe *regexp.Regexp) {
 }
 
 func (e *Emitter) getListeners (topic string) (listeners []*listener) {
-	e.mu.Lock()
-
 	topicRe := e.getTopicRe(topic)
 
 	ids := topicRe.FindAllStringSubmatch(e.patterns,-1)
@@ -274,8 +274,6 @@ func (e *Emitter) getListeners (topic string) (listeners []*listener) {
 
 		listeners = append(listeners, e.listeners[ch])
 	}
-
-	e.mu.Unlock()
 
 	return
 }
@@ -298,8 +296,6 @@ func (e *Emitter) emitEvent (rootEvent *Event, listeners []*listener) {
 	defer rootEvent.used.Add(-1)
 
 	event := *rootEvent
-
-	if listeners == nil { listeners = e.getListeners(event.Topic) }
 
 	for _,l := range listeners {
 		for _,fn := range l.middlewars {
